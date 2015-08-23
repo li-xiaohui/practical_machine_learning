@@ -1,0 +1,141 @@
+---
+title: "Machine Learning Prediction Project"
+author: "Li Xiaohui"
+date: "`r Sys.Date()`"
+output: md_document
+---
+ 
+ 
+```{r setup, include=FALSE}
+##```{r setup}
+ 
+# set global chunk options: images will be 7x5 inches
+knitr::opts_chunk$set(fig.width=7, fig.height=5, fig.path='figs/', cache=TRUE, warning=FALSE, message=FALSE)
+options(digits = 4)
+```
+ 
+ 
+## Intro
+ 
+In this project, I will be using data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants and quantify how well each participant did each activity.
+Participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (http://groupware.les.inf.puc-rio.br/har)
+(see the section on the Weight Lifting Exercise Dataset).
+ 
+Load libraries and set seed to ensure reproducibility of results.
+```{r load library and dataset, echo=FALSE, message=FALSE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+set.seed(1235)
+```
+ 
+## Data preprocessing
+In this section, #DIV/0! were removed and replaced with NA values and empty strings were replaced by NA values.
+Columns with every row being NA are removed from training and testing data.
+To make sure learned model can be applied to testing data, only complete cases are retained in both training and testing data sets.
+Finally, the common features in both training and testing data sets are used for training.
+ 
+```{r data exploratory }
+pml_training <- read.csv(file="pml-training.csv", header=TRUE, na.strings=c("NA","#DIV/0!",""))
+dim(pml_training)
+#summary(pml_training)
+ 
+# function to remove columns with every row being NA
+removeNAcols   <- function(x) { x[, colSums( is.na(x) ) < nrow(x) ] }
+ 
+tr.na.rm <- removeNAcols(pml_training)
+ 
+# only take the complete cases
+tr.complete <- tr.na.rm[complete.cases(tr.na.rm), ]
+ 
+ 
+pml_testing <- read.csv(file="pml-testing.csv", header=TRUE, na.strings=c("NA","#DIV/0!",""))
+ 
+# only keep names that appear in training
+names <- names(tr.na.rm)
+names <- names[1: length(names)-1]
+testing <- pml_testing[, names]
+ 
+# remove columns with every row being NA
+testing <- removeNAcols(testing)
+ 
+ 
+# only keep columns that appear in testing
+tr.complete <- tr.complete[ , c(names(testing), "classe")]
+ 
+#split training into training and testing
+inTrain <- createDataPartition(y=tr.complete$classe, p=0.6, list=FALSE)
+tr.training <- tr.complete[inTrain, ]; tr.testing <- tr.complete[-inTrain, ]
+ 
+ 
+```
+ 
+ 
+## Fit a decision tree model
+ 
+We fit a decision tree model.
+ 
+```{r decision tree model}
+ 
+treeFit<- rpart(classe ~ . , data=tr.training, method="class")
+ 
+#plot(treeFit)
+fancyRpartPlot(treeFit)
+ 
+tr.testing$tree_pred <- predict(treeFit, tr.testing, type="class")
+ 
+confusionMatrix(tr.testing$tree_pred, tr.testing$classe)
+ 
+```
+ 
+The results is good with accuracy being 1.
+ 
+## Fit a random forest model
+With random forest, we do repeated data cross validation by dividnig data into 5 groups and repeat 3 times.
+ 
+ 
+```{r random forest model}
+cvCtrl <- trainControl(method = "repeatedcv",
+                           number = 5,
+                           repeats = 3)
+ 
+rfFit<- train(classe ~ . , data=tr.training, method="rf", trControl=cvCtrl, importance=TRUE)
+ 
+tr.testing$dt_pred <- predict(rfFit, tr.testing)
+confusionMatrix(tr.testing$dt_pred, tr.testing$classe)
+ 
+ 
+```
+ 
+ 
+ 
+We also want to investigate the variable importances by plotting the importance levels of variables.
+```{r importance plot}
+ 
+varImpPlot(rfFit$finalModel)
+ 
+```
+ 
+ 
+## Generating submission files
+ 
+Function to generate files with predictions to submit for assignment
+ 
+```{r submission file generation, eval=FALSE}
+ 
+pred <- predict(rfFit, testing, type = "class")
+ 
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+ 
+pml_write_files(pred)
+ 
+```
